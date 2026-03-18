@@ -6,20 +6,29 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     build: {
+      outDir: 'dist/main',
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'main/index.ts'),
-          preload: resolve(__dirname, 'main/preload.ts')
+          index: resolve(__dirname, 'main/index.ts')
         }
       }
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      outDir: 'dist/preload',
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'main/preload.ts')
+        }
+      }
+    }
   },
   renderer: {
-    root: '.',
+    root: 'renderer',
     build: {
+      outDir: 'dist/renderer',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'renderer/index.html')

@@ -20,5 +20,14 @@ contextBridge.exposeInMainWorld('ghost', {
 
   // Store
   getSetting: (key: string) => ipcRenderer.invoke(IPC.STORE_GET, key),
-  setSetting: (key: string, value: any) => ipcRenderer.invoke(IPC.STORE_SET, key, value)
+  setSetting: (key: string, value: any) => ipcRenderer.invoke(IPC.STORE_SET, key, value),
+
+  // API Key Management
+  setAPIKey: (provider: 'openai' | 'anthropic' | 'whisper', key: string) =>
+    ipcRenderer.invoke(IPC.STORE_SET_API_KEY, provider, key),
+  getAPIKey: (provider: 'openai' | 'anthropic' | 'whisper') =>
+    ipcRenderer.invoke(IPC.STORE_GET_API_KEY, provider),
+  hasAPIKey: (provider: 'openai' | 'anthropic' | 'whisper') =>
+    ipcRenderer.invoke(IPC.STORE_HAS_API_KEY, provider),
+  clearAPIKeys: () => ipcRenderer.invoke(IPC.STORE_CLEAR_API_KEYS)
 })
