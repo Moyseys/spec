@@ -22,6 +22,22 @@ contextBridge.exposeInMainWorld('ghost', {
   getSetting: (key: string) => ipcRenderer.invoke(IPC.STORE_GET, key),
   setSetting: (key: string, value: any) => ipcRenderer.invoke(IPC.STORE_SET, key, value),
 
+  // Messages
+  messages: {
+    save: (messages: any[]) => ipcRenderer.invoke(IPC.MESSAGES_SAVE, messages),
+    getLast: () => ipcRenderer.invoke(IPC.MESSAGES_GET_LAST),
+    clear: () => ipcRenderer.invoke(IPC.MESSAGES_CLEAR)
+  },
+
+  // Ollama Operations
+  ollama: {
+    checkStatus: () => ipcRenderer.invoke(IPC.OLLAMA_CHECK_STATUS),
+    listModels: () => ipcRenderer.invoke(IPC.OLLAMA_LIST_MODELS),
+    sendMessage: (messages: any[], model: string) => 
+      ipcRenderer.invoke(IPC.OLLAMA_SEND_MESSAGE, messages, model),
+    stopGeneration: () => ipcRenderer.invoke(IPC.OLLAMA_STOP_GENERATION)
+  },
+
   // API Key Management
   setAPIKey: (provider: 'openai' | 'anthropic' | 'whisper', key: string) =>
     ipcRenderer.invoke(IPC.STORE_SET_API_KEY, provider, key),

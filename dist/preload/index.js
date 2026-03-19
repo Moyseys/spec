@@ -6,6 +6,11 @@ const IPC = {
   AI_STREAM_CHUNK: "ai:streamChunk",
   AI_CLEAR_HISTORY: "ai:clearHistory",
   AI_LIST_MODELS: "ai:listModels",
+  // Ollama Operations
+  OLLAMA_CHECK_STATUS: "ollama:checkStatus",
+  OLLAMA_LIST_MODELS: "ollama:listModels",
+  OLLAMA_SEND_MESSAGE: "ollama:sendMessage",
+  OLLAMA_STOP_GENERATION: "ollama:stopGeneration",
   // Window Management
   WINDOW_HIDE: "window:hide",
   WINDOW_TOGGLE: "window:toggle",
@@ -15,7 +20,11 @@ const IPC = {
   STORE_GET_API_KEY: "store:getApiKey",
   STORE_SET_API_KEY: "store:setApiKey",
   STORE_HAS_API_KEY: "store:hasApiKey",
-  STORE_CLEAR_API_KEYS: "store:clearApiKeys"
+  STORE_CLEAR_API_KEYS: "store:clearApiKeys",
+  // Messages
+  MESSAGES_SAVE: "messages:save",
+  MESSAGES_GET_LAST: "messages:getLast",
+  MESSAGES_CLEAR: "messages:clear"
 };
 electron.contextBridge.exposeInMainWorld("ghost", {
   // AI Communication
@@ -33,6 +42,19 @@ electron.contextBridge.exposeInMainWorld("ghost", {
   // Store
   getSetting: (key) => electron.ipcRenderer.invoke(IPC.STORE_GET, key),
   setSetting: (key, value) => electron.ipcRenderer.invoke(IPC.STORE_SET, key, value),
+  // Messages
+  messages: {
+    save: (messages) => electron.ipcRenderer.invoke(IPC.MESSAGES_SAVE, messages),
+    getLast: () => electron.ipcRenderer.invoke(IPC.MESSAGES_GET_LAST),
+    clear: () => electron.ipcRenderer.invoke(IPC.MESSAGES_CLEAR)
+  },
+  // Ollama Operations
+  ollama: {
+    checkStatus: () => electron.ipcRenderer.invoke(IPC.OLLAMA_CHECK_STATUS),
+    listModels: () => electron.ipcRenderer.invoke(IPC.OLLAMA_LIST_MODELS),
+    sendMessage: (messages, model) => electron.ipcRenderer.invoke(IPC.OLLAMA_SEND_MESSAGE, messages, model),
+    stopGeneration: () => electron.ipcRenderer.invoke(IPC.OLLAMA_STOP_GENERATION)
+  },
   // API Key Management
   setAPIKey: (provider, key) => electron.ipcRenderer.invoke(IPC.STORE_SET_API_KEY, provider, key),
   getAPIKey: (provider) => electron.ipcRenderer.invoke(IPC.STORE_GET_API_KEY, provider),

@@ -6,6 +6,12 @@ interface SettingsProps {
 
 type Provider = 'openai' | 'anthropic' | 'ollama'
 
+interface OllamaModel {
+  name: string
+  size: number
+  modified_at: string
+}
+
 const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const [selectedProvider, setSelectedProvider] = useState<Provider>('ollama')
   const [apiKeys, setApiKeys] = useState({ openai: '', anthropic: '' })
@@ -13,9 +19,15 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const [showKeys, setShowKeys] = useState({ openai: false, anthropic: false })
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  
+  const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean; error?: string }>({ running: false })
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([])
+  const [selectedModel, setSelectedModel] = useState<string>('')
+  const [loadingOllama, setLoadingOllama] = useState(false)
 
   useEffect(() => {
     loadSettings()
+    checkOllama()
   }, [])
 
   const loadSettings = async () => {
@@ -23,6 +35,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
       const providerResult = await window.ghost.getSetting('defaultAIProvider')
       if (providerResult.success && providerResult.data) {
         setSelectedProvider(providerResult.data as Provider)
+      }
+
+      const modelResult = await window.ghost.getSetting('ollamaModel')
+      if (modelResult.success && modelResult.data) {
+        setSelectedModel(modelResult.data)
       }
 
       const openaiHas = await window.ghost.hasAPIKey('openai')
@@ -34,6 +51,28 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
       })
     } catch (err) {
       console.error('Error loading settings:', err)
+    }
+  }
+
+  const checkOllama = async () => {
+    setLoadingOllama(true)
+    try {
+      const statusResult = await window.ghost.ollama.checkStatus()
+      if (statusResult.success && statusResult.data) {
+        setOllamaStatus(statusResult.data)
+        
+        if (statusResult.data.running && statusResult.data.models) {
+          setOllamaModels(statusResult.data.models)
+          
+          if (!selectedModel && statusResult.data.models.length > 0) {
+            setSelectedModel(statusResult.data.models[0].name)
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error checking Ollama:', err)
+    } finally {
+      setLoadingOllama(false)
     }
   }
 
@@ -72,7 +111,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
     try {
       const result = await window.ghost.setSetting('defaultAIProvider', selectedProvider)
       if (result.success) {
-        setMessage({ type: 'success', text: 'Provider salvo' })
+        if (selectedProvider === 'ollama' && selectedModel) {
+          await window.ghost.setSetting('ollamaModel', selectedModel)
+        }
+        setMessage({ type: 'success', text: 'Configurações salvas' })
         setTimeout(() => setMessage(null), 3000)
       }
     } catch (err) {
@@ -125,6 +167,61 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
               ))}
             </div>
           </div>
+
+          {selectedProvider === 'ollama' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Modelo Ollama</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={checkOllama}
+                    disabled={loadingOllama}
+                    className="px-3 py-1.5 text-xs bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-md text-white transition-colors"
+                  >
+                    {loadingOllama ? 'Verificando...' : 'Atualizar'}
+                  </button>
+                  {ollamaStatus.running ? (
+                    <span className="text-xs text-emerald-400">Conectado</span>
+                  ) : (
+                    <span className="text-xs text-red-400">Desconectado</span>
+                  )}
+                </div>
+              </div>
+              
+              {loadingOllama ? (
+                <div className="text-sm text-zinc-500 py-3">Verificando Ollama...</div>
+              ) : !ollamaStatus.running ? (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3">
+                  <p className="text-sm text-yellow-300 mb-2">Ollama não está rodando</p>
+                  <p className="text-xs text-zinc-400 mb-2">
+                    Inicie o Ollama para usar modelos locais
+                  </p>
+                  <code className="text-xs bg-black/30 px-2 py-1 rounded">ollama serve</code>
+                </div>
+              ) : ollamaModels.length === 0 ? (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3">
+                  <p className="text-sm text-yellow-300 mb-2">Nenhum modelo instalado</p>
+                  <p className="text-xs text-zinc-400 mb-2">
+                    Baixe um modelo para começar:
+                  </p>
+                  <code className="text-xs bg-black/30 px-2 py-1 rounded block mb-1">ollama pull phi</code>
+                  <code className="text-xs bg-black/30 px-2 py-1 rounded block">ollama pull llama2</code>
+                </div>
+              ) : (
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20 focus:bg-white/10 transition-all"
+                >
+                  {ollamaModels.map((model) => (
+                    <option key={model.name} value={model.name} className="bg-zinc-900">
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
 
           {apiProviders.map((provider) => (
             <div key={provider} className="space-y-3">

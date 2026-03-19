@@ -5,6 +5,12 @@ export const IPC = {
   AI_CLEAR_HISTORY: 'ai:clearHistory',
   AI_LIST_MODELS: 'ai:listModels',
 
+  // Ollama Operations
+  OLLAMA_CHECK_STATUS: 'ollama:checkStatus',
+  OLLAMA_LIST_MODELS: 'ollama:listModels',
+  OLLAMA_SEND_MESSAGE: 'ollama:sendMessage',
+  OLLAMA_STOP_GENERATION: 'ollama:stopGeneration',
+
   // Window Management
   WINDOW_HIDE: 'window:hide',
   WINDOW_TOGGLE: 'window:toggle',
@@ -17,6 +23,11 @@ export const IPC = {
   STORE_SET_API_KEY: 'store:setApiKey',
   STORE_HAS_API_KEY: 'store:hasApiKey',
   STORE_CLEAR_API_KEYS: 'store:clearApiKeys',
+
+  // Messages
+  MESSAGES_SAVE: 'messages:save',
+  MESSAGES_GET_LAST: 'messages:getLast',
+  MESSAGES_CLEAR: 'messages:clear',
 
   // Audio Capture (future)
   AUDIO_START_CAPTURE: 'audio:startCapture',

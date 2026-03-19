@@ -6,17 +6,231 @@ const Store = require("electron-store");
 const IPC = {
   // AI Operations
   AI_SEND_MESSAGE: "ai:sendMessage",
+  AI_STREAM_CHUNK: "ai:streamChunk",
+  AI_CLEAR_HISTORY: "ai:clearHistory",
+  AI_LIST_MODELS: "ai:listModels",
+  // Ollama Operations
+  OLLAMA_CHECK_STATUS: "ollama:checkStatus",
+  OLLAMA_LIST_MODELS: "ollama:listModels",
+  OLLAMA_SEND_MESSAGE: "ollama:sendMessage",
+  OLLAMA_STOP_GENERATION: "ollama:stopGeneration",
   // Window Management
   WINDOW_HIDE: "window:hide",
   WINDOW_TOGGLE: "window:toggle",
+  WINDOW_READY: "window:ready",
   // Configuration & Settings
   STORE_GET: "store:get",
   STORE_SET: "store:set",
   STORE_GET_API_KEY: "store:getApiKey",
   STORE_SET_API_KEY: "store:setApiKey",
   STORE_HAS_API_KEY: "store:hasApiKey",
-  STORE_CLEAR_API_KEYS: "store:clearApiKeys"
+  STORE_CLEAR_API_KEYS: "store:clearApiKeys",
+  // Messages
+  MESSAGES_SAVE: "messages:save",
+  MESSAGES_GET_LAST: "messages:getLast",
+  MESSAGES_CLEAR: "messages:clear",
+  // Audio Capture (future)
+  AUDIO_START_CAPTURE: "audio:startCapture",
+  AUDIO_STOP_CAPTURE: "audio:stopCapture",
+  AUDIO_GET_DEVICES: "audio:getDevices",
+  // Transcription (future)
+  TRANSCRIPTION_START: "transcription:start",
+  TRANSCRIPTION_STOP: "transcription:stop",
+  TRANSCRIPTION_CHUNK: "transcription:chunk"
 };
+const OLLAMA_BASE_URL = "http://localhost:11434";
+async function checkOllamaStatus() {
+  try {
+    const response = await electron.net.fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    if (!response.ok) {
+      return { running: false, error: `Status ${response.status}` };
+    }
+    const data = await response.json();
+    return {
+      running: true,
+      version: data.version,
+      models: data.models || []
+    };
+  } catch (err) {
+    return { running: false, error: "Ollama offline" };
+  }
+}
+async function listOllamaModels() {
+  const status = await checkOllamaStatus();
+  return status.running && status.models ? status.models : [];
+}
+async function sendChatMessage(messages, model = "llama2", stream = false) {
+  try {
+    const response = await electron.net.fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream
+      })
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      if (response.status === 404) {
+        throw new Error(`Modelo "${model}" não encontrado. Instale com: ollama pull ${model}`);
+      }
+      throw new Error(`Ollama error: ${response.status} - ${error}`);
+    }
+    return response;
+  } catch (err) {
+    if (err instanceof TypeError && err.message.includes("fetch")) {
+      throw new Error("Não foi possível conectar ao Ollama. Certifique-se de que está rodando: ollama serve");
+    }
+    throw err;
+  }
+}
+let currentStream = null;
+function registerOllamaHandlers() {
+  electron.ipcMain.handle(IPC.OLLAMA_CHECK_STATUS, async () => {
+    try {
+      const status = await checkOllamaStatus();
+      return { success: true, data: status };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Erro ao verificar Ollama"
+      };
+    }
+  });
+  electron.ipcMain.handle(IPC.OLLAMA_LIST_MODELS, async () => {
+    try {
+      const models = await listOllamaModels();
+      return { success: true, data: models };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Erro ao listar modelos"
+      };
+    }
+  });
+  electron.ipcMain.handle(IPC.OLLAMA_SEND_MESSAGE, async (event, messages, model) => {
+    try {
+      currentStream = new AbortController();
+      const response = await sendChatMessage(messages, model, true);
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) {
+        return { success: false, error: "No response stream" };
+      }
+      const window = electron.BrowserWindow.fromWebContents(event.sender);
+      if (!window) {
+        return { success: false, error: "Window not found" };
+      }
+      let fullResponse = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n").filter((line) => line.trim());
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line);
+            if (data.message?.content) {
+              fullResponse += data.message.content;
+              window.webContents.send(IPC.AI_STREAM_CHUNK, data.message.content);
+            }
+            if (data.done) {
+              return { success: true, data: fullResponse };
+            }
+          } catch (parseErr) {
+            console.error("Error parsing NDJSON:", parseErr);
+          }
+        }
+      }
+      return { success: true, data: fullResponse };
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return { success: false, error: "Geração cancelada" };
+      }
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Erro ao enviar mensagem"
+      };
+    } finally {
+      currentStream = null;
+    }
+  });
+  electron.ipcMain.handle(IPC.OLLAMA_STOP_GENERATION, async () => {
+    if (currentStream) {
+      currentStream.abort();
+      currentStream = null;
+      return { success: true };
+    }
+    return { success: false, error: "Nenhuma geração em andamento" };
+  });
+}
+const messagesStore = new Store({
+  name: "messages",
+  defaults: {
+    conversations: []
+  }
+});
+function saveConversation(messages) {
+  const conversations = messagesStore.get("conversations", []);
+  const id = Date.now().toString();
+  const conversation = {
+    id,
+    messages,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  conversations.unshift(conversation);
+  const maxConversations = 50;
+  if (conversations.length > maxConversations) {
+    conversations.splice(maxConversations);
+  }
+  messagesStore.set("conversations", conversations);
+  return id;
+}
+function getLastConversation() {
+  const conversations = messagesStore.get("conversations", []);
+  if (conversations.length === 0) return null;
+  return conversations[0].messages;
+}
+function clearConversations() {
+  messagesStore.set("conversations", []);
+}
+function registerMessagesHandlers() {
+  electron.ipcMain.handle(IPC.MESSAGES_SAVE, async (_event, messages) => {
+    try {
+      const id = saveConversation(messages);
+      return { success: true, data: id };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Erro ao salvar mensagens"
+      };
+    }
+  });
+  electron.ipcMain.handle(IPC.MESSAGES_GET_LAST, async () => {
+    try {
+      const messages = getLastConversation();
+      return { success: true, data: messages };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Erro ao carregar mensagens"
+      };
+    }
+  });
+  electron.ipcMain.handle(IPC.MESSAGES_CLEAR, async () => {
+    try {
+      clearConversations();
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Erro ao limpar mensagens"
+      };
+    }
+  });
+}
 const defaults = {
   shortcut: "CommandOrControl+Shift+Space",
   windowWidth: 720,
@@ -263,6 +477,8 @@ electron.app.whenReady().then(() => {
     toggleWindow();
   });
   registerStoreHandlers();
+  registerOllamaHandlers();
+  registerMessagesHandlers();
   electron.ipcMain.on(IPC.WINDOW_HIDE, () => mainWindow?.hide());
   electron.ipcMain.on(IPC.WINDOW_TOGGLE, () => toggleWindow());
   electron.ipcMain.handle(IPC.AI_SEND_MESSAGE, async (_event, message) => {

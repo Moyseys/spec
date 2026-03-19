@@ -2,6 +2,9 @@ import { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, native
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc-channels'
+import { registerStoreHandlers } from './ipc/store'
+import { registerOllamaHandlers } from './ipc/ollama'
+import { registerMessagesHandlers } from './ipc/messages'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -98,6 +101,8 @@ app.whenReady().then(() => {
 
   // Register IPC Handlers
   registerStoreHandlers()
+  registerOllamaHandlers()
+  registerMessagesHandlers()
 
   // IPC Handlers
   ipcMain.on(IPC.WINDOW_HIDE, () => mainWindow?.hide())
