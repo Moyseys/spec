@@ -1,28 +1,41 @@
-import Store from 'electron-store';
-import { safeStorage } from 'electron';
+import Store from 'electron-store'
+import { safeStorage } from 'electron'
+import type {
+  APIProvider,
+  AppLanguage,
+  AppTheme,
+  DefaultAIProvider,
+  RecordingMetadata,
+  StoreSettingKey,
+  StoreSettingValue,
+} from '../../shared/ipc-channels'
 
 export interface AppConfig {
-  // Window & Shortcuts
-  shortcut: string;
-  windowWidth: number;
-  windowHeight: number;
+  recordings: RecordingMetadata[]
 
-  // API Keys (encrypted with safeStorage - stored as base64)
-  openaiApiKey?: string;
-  anthropicApiKey?: string;
-  whisperApiKey?: string;
+  shortcut: string
+  windowWidth: number
+  windowHeight: number
 
-  // AI Settings
-  defaultAIProvider: 'openai' | 'anthropic' | 'ollama';
-  defaultModel: string;
-  temperature: number;
+  openaiApiKey?: string
+  anthropicApiKey?: string
+  whisperApiKey?: string
 
-  // UI Preferences
-  theme: 'dark' | 'light';
-  language: 'pt' | 'en';
+  defaultAIProvider: DefaultAIProvider
+  defaultModel: string
+  ollamaModel?: string
+  temperature: number
+
+  theme: AppTheme
+  language: AppLanguage
+
+  'audio.deviceId'?: string
 }
 
+type StoredAPIKeyField = 'openaiApiKey' | 'anthropicApiKey' | 'whisperApiKey'
+
 const defaults: AppConfig = {
+  recordings: [],
   shortcut: 'CommandOrControl+Shift+Space',
   windowWidth: 720,
   windowHeight: 680,
@@ -33,145 +46,129 @@ const defaults: AppConfig = {
 
   theme: 'dark',
   language: 'pt',
-};
+}
 
 export const store = new Store<AppConfig>({
   defaults,
-  // electron-store encryption - segunda camada de segurança
-  encryptionKey: 'ghost-ai-assistant-v1',
-});
+  encryptionKey: process.env.ENCRYPTION_KEY || 'ghost-ai-assistant-v1',
+})
 
-// Encryption helpers usando safeStorage do Electron
 function encryptKey(plainText: string): string {
   if (!safeStorage.isEncryptionAvailable()) {
-    console.warn('Encryption not available, storing in plain text (DEV only)');
-    return Buffer.from(plainText).toString('base64');
+    console.warn('Encryption not available, storing in plain text (DEV only)')
+    return Buffer.from(plainText).toString('base64')
   }
-  const encrypted = safeStorage.encryptString(plainText);
-  return encrypted.toString('base64');
+  const encrypted = safeStorage.encryptString(plainText)
+  return encrypted.toString('base64')
 }
 
 function decryptKey(encryptedBase64: string): string {
   if (!safeStorage.isEncryptionAvailable()) {
-    return Buffer.from(encryptedBase64, 'base64').toString();
+    return Buffer.from(encryptedBase64, 'base64').toString()
   }
-  const buffer = Buffer.from(encryptedBase64, 'base64');
-  return safeStorage.decryptString(buffer);
+  const buffer = Buffer.from(encryptedBase64, 'base64')
+  return safeStorage.decryptString(buffer)
 }
 
-// Type-safe getters/setters
-export function getConfig<K extends keyof AppConfig>(key: K): AppConfig[K] {
-  return store.get(key);
+export function getConfig<K extends StoreSettingKey>(key: K): StoreSettingValue<K>
+export function getConfig(key: string): unknown
+export function getConfig(key: string): unknown {
+  return store.get(key)
 }
 
-export function setConfig<K extends keyof AppConfig>(
-  key: K,
-  value: AppConfig[K]
-): void {
-  store.set(key, value);
+export function setConfig<K extends StoreSettingKey>(key: K, value: StoreSettingValue<K>): void
+export function setConfig(key: string, value: unknown): void
+export function setConfig(key: string, value: unknown): void {
+  store.set(key, value)
 }
 
-// API Key management com encriptação usando safeStorage
-export function setAPIKey(
-  provider: 'openai' | 'anthropic' | 'whisper',
-  key: string
-): { success: boolean; error?: string } {
+export function setAPIKey(provider: APIProvider, key: string): { success: boolean; error?: string } {
   if (!key || key.trim().length === 0) {
-    return { success: false, error: 'API key cannot be empty' };
+    return { success: false, error: 'API key não pode ficar vazia.' }
   }
 
-  // Validação básica do formato da key
-  const trimmedKey = key.trim();
+  const trimmedKey = key.trim()
   if (trimmedKey.length < 10) {
-    return { success: false, error: 'API key too short - please check' };
+    return { success: false, error: 'API key muito curta. Verifique o valor informado.' }
   }
 
-  const keyMap = {
+  const keyMap: Record<APIProvider, StoredAPIKeyField> = {
     openai: 'openaiApiKey',
     anthropic: 'anthropicApiKey',
     whisper: 'whisperApiKey',
-  } as const;
+  }
 
   try {
-    // Encriptar antes de salvar
-    const encrypted = encryptKey(trimmedKey);
-    store.set(keyMap[provider], encrypted);
-    console.log(`API key for ${provider} saved securely`);
-    return { success: true };
+    const encrypted = encryptKey(trimmedKey)
+    store.set(keyMap[provider], encrypted)
+    return { success: true }
   } catch (err) {
-    console.error(`Error saving API key for ${provider}:`, err);
-    return { success: false, error: (err as Error).message };
+    console.error(`Error saving API key for ${provider}:`, err)
+    return { success: false, error: (err as Error).message }
   }
 }
 
-export function getAPIKey(
-  provider: 'openai' | 'anthropic' | 'whisper'
-): string | undefined {
-  const keyMap = {
+export function getAPIKey(provider: APIProvider): string | undefined {
+  const keyMap: Record<APIProvider, StoredAPIKeyField> = {
     openai: 'openaiApiKey',
     anthropic: 'anthropicApiKey',
     whisper: 'whisperApiKey',
-  } as const;
+  }
 
   try {
-    const encrypted = store.get(keyMap[provider]);
-    if (!encrypted) return undefined;
-    
-    // Decriptar antes de retornar
-    return decryptKey(encrypted);
+    const encrypted = store.get(keyMap[provider])
+    if (!encrypted) return undefined
+
+    return decryptKey(encrypted)
   } catch (err) {
-    console.error(`Error retrieving API key for ${provider}:`, err);
-    return undefined;
+    console.error(`Error retrieving API key for ${provider}:`, err)
+    return undefined
   }
 }
 
-export function hasAPIKey(provider: 'openai' | 'anthropic' | 'whisper'): boolean {
-  const key = getAPIKey(provider);
-  return !!key && key.length > 0;
+export function hasAPIKey(provider: APIProvider): boolean {
+  const key = getAPIKey(provider)
+  return !!key && key.length > 0
 }
 
 export function clearAPIKeys(): void {
-  store.delete('openaiApiKey');
-  store.delete('anthropicApiKey');
-  store.delete('whisperApiKey');
-  console.log('All API keys cleared');
+  store.delete('openaiApiKey')
+  store.delete('anthropicApiKey')
+  store.delete('whisperApiKey')
 }
 
-// Helper para testar se uma API key é válida (formato)
 export function validateAPIKeyFormat(
-  provider: 'openai' | 'anthropic' | 'whisper',
+  provider: APIProvider,
   key: string
 ): { valid: boolean; error?: string } {
-  const trimmed = key.trim();
-  
+  const trimmed = key.trim()
+
   if (!trimmed) {
-    return { valid: false, error: 'API key is empty' };
+    return { valid: false, error: 'API key vazia.' }
   }
 
-  // Validações específicas por provider
   switch (provider) {
     case 'openai':
       if (!trimmed.startsWith('sk-')) {
-        return { valid: false, error: 'OpenAI keys should start with "sk-"' };
+        return { valid: false, error: 'A chave da OpenAI deve começar com "sk-".' }
       }
       if (trimmed.length < 40) {
-        return { valid: false, error: 'OpenAI key too short' };
+        return { valid: false, error: 'A chave da OpenAI parece curta demais.' }
       }
-      break;
-    
+      break
+
     case 'anthropic':
       if (!trimmed.startsWith('sk-ant-')) {
-        return { valid: false, error: 'Anthropic keys should start with "sk-ant-"' };
+        return { valid: false, error: 'A chave da Anthropic deve começar com "sk-ant-".' }
       }
-      break;
-    
+      break
+
     case 'whisper':
-      // Whisper usa mesma key da OpenAI
       if (!trimmed.startsWith('sk-')) {
-        return { valid: false, error: 'Whisper keys should start with "sk-"' };
+        return { valid: false, error: 'A chave para Whisper deve começar com "sk-".' }
       }
-      break;
+      break
   }
 
-  return { valid: true };
+  return { valid: true }
 }

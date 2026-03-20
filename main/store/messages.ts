@@ -1,8 +1,7 @@
 import Store from 'electron-store'
+import type { ConversationMessage } from '../../shared/ipc-channels'
 
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
+interface Message extends ConversationMessage {
   timestamp: number
 }
 
@@ -20,15 +19,24 @@ const messagesStore = new Store<{ conversations: Conversation[] }>({
   }
 })
 
-export function saveConversation(messages: Message[]): string {
+export function saveConversation(messages: ConversationMessage[]): string {
   const conversations = messagesStore.get('conversations', [])
   const id = Date.now().toString()
+  const now = Date.now()
+  const normalizedMessages: Message[] = messages.map((message) => ({
+    role: message.role,
+    content: message.content,
+    timestamp:
+      typeof message.timestamp === 'number' && Number.isFinite(message.timestamp)
+        ? message.timestamp
+        : now,
+  }))
   
   const conversation: Conversation = {
     id,
-    messages,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    messages: normalizedMessages,
+    createdAt: now,
+    updatedAt: now
   }
 
   conversations.unshift(conversation)
@@ -42,10 +50,14 @@ export function saveConversation(messages: Message[]): string {
   return id
 }
 
-export function getLastConversation(): Message[] | null {
+export function getLastConversation(): ConversationMessage[] | null {
   const conversations = messagesStore.get('conversations', [])
   if (conversations.length === 0) return null
-  return conversations[0].messages
+  return conversations[0].messages.map((message) => ({
+    role: message.role,
+    content: message.content,
+    timestamp: message.timestamp,
+  }))
 }
 
 export function clearConversations(): void {

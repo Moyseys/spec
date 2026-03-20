@@ -76,12 +76,14 @@ export async function hasModel(modelName: string): Promise<boolean> {
 export async function sendChatMessage(
   messages: OllamaMessage[],
   model: string = 'llama2',
-  stream: boolean = false
+  stream: boolean = false,
+  signal?: AbortSignal
 ): Promise<Response> {
   try {
     const response = await net.fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({
         model,
         messages,
@@ -94,11 +96,17 @@ export async function sendChatMessage(
       if (response.status === 404) {
         throw new Error(`Modelo "${model}" não encontrado. Instale com: ollama pull ${model}`)
       }
-      throw new Error(`Ollama error: ${response.status} - ${error}`)
+      if (response.status >= 500) {
+        throw new Error('Ollama indisponível no momento. Tente novamente em instantes.')
+      }
+      throw new Error(`Falha no Ollama (status ${response.status}): ${error}`)
     }
 
     return response
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err
+    }
     if (err instanceof TypeError && err.message.includes('fetch')) {
       throw new Error('Não foi possível conectar ao Ollama. Certifique-se de que está rodando: ollama serve')
     }

@@ -1,23 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   html, body {
-    @apply h-full m-0 overflow-hidden bg-transparent font-sans text-white antialiased;
+    @apply h-full m-0 overflow-hidden bg-black font-sans text-white antialiased;
+  }
+}
+
+@layer components {
+  /* Glassmorphism utility classes - mais sutis */
+  .glass {
+    @apply bg-white/[0.03] backdrop-blur-xl border border-white/[0.06];
+  }
+  
+  .glass-strong {
+    @apply bg-white/[0.05] backdrop-blur-2xl border border-white/[0.08];
+  }
+  
+  /* Gradient backgrounds */
+  .bg-ghost {
+    background: linear-gradient(135deg, #000000 0%, #0a0a0a 100%);
+  }
+  
+  .bg-accent-gradient {
+    background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
+  }
+  
+  /* Interactive states - mais sutis */
+  .interactive {
+    @apply transition-all duration-200 hover:scale-[1.01] active:scale-[0.99];
+  }
+  
+  /* Focus ring - blue neutro */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-1 focus:ring-blue-500/30 focus:ring-offset-1 focus:ring-offset-black;
+  }
+  
+  /* Skeleton loader */
+  .skeleton {
+    @apply bg-gradient-to-r from-white/[0.03] via-white/[0.06] to-white/[0.03] bg-[length:200%_100%] animate-shimmer;
   }
 }
 
 ::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.15);
 }

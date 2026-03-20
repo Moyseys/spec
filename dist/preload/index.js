@@ -1,5 +1,19 @@
 "use strict";
 const electron = require("electron");
+const STORE_SETTING_KEYS = {
+  DEFAULT_AI_PROVIDER: "defaultAIProvider",
+  DEFAULT_MODEL: "defaultModel",
+  OLLAMA_MODEL: "ollamaModel",
+  AUDIO_DEVICE_ID: "audio.deviceId",
+  RECORDINGS: "recordings",
+  SHORTCUT: "shortcut",
+  WINDOW_WIDTH: "windowWidth",
+  WINDOW_HEIGHT: "windowHeight",
+  TEMPERATURE: "temperature",
+  THEME: "theme",
+  LANGUAGE: "language"
+};
+new Set(Object.values(STORE_SETTING_KEYS));
 const IPC = {
   // AI Operations
   AI_SEND_MESSAGE: "ai:sendMessage",
@@ -24,10 +38,11 @@ const IPC = {
   // Messages
   MESSAGES_SAVE: "messages:save",
   MESSAGES_GET_LAST: "messages:getLast",
-  MESSAGES_CLEAR: "messages:clear"
+  MESSAGES_CLEAR: "messages:clear",
+  // Transcription (future)
+  TRANSCRIPTION_TRANSCRIBE: "transcription:transcribe"
 };
-electron.contextBridge.exposeInMainWorld("ghost", {
-  // AI Communication
+const ghostApi = {
   sendMessage: (message) => electron.ipcRenderer.invoke(IPC.AI_SEND_MESSAGE, message),
   onStreamChunk: (callback) => {
     const listener = (_event, chunk) => callback(chunk);
@@ -36,28 +51,25 @@ electron.contextBridge.exposeInMainWorld("ghost", {
   },
   clearHistory: () => electron.ipcRenderer.invoke(IPC.AI_CLEAR_HISTORY),
   listModels: () => electron.ipcRenderer.invoke(IPC.AI_LIST_MODELS),
-  // Window Operations
   hideWindow: () => electron.ipcRenderer.send(IPC.WINDOW_HIDE),
   toggleWindow: () => electron.ipcRenderer.send(IPC.WINDOW_TOGGLE),
-  // Store
   getSetting: (key) => electron.ipcRenderer.invoke(IPC.STORE_GET, key),
   setSetting: (key, value) => electron.ipcRenderer.invoke(IPC.STORE_SET, key, value),
-  // Messages
   messages: {
     save: (messages) => electron.ipcRenderer.invoke(IPC.MESSAGES_SAVE, messages),
     getLast: () => electron.ipcRenderer.invoke(IPC.MESSAGES_GET_LAST),
     clear: () => electron.ipcRenderer.invoke(IPC.MESSAGES_CLEAR)
   },
-  // Ollama Operations
   ollama: {
     checkStatus: () => electron.ipcRenderer.invoke(IPC.OLLAMA_CHECK_STATUS),
     listModels: () => electron.ipcRenderer.invoke(IPC.OLLAMA_LIST_MODELS),
     sendMessage: (messages, model) => electron.ipcRenderer.invoke(IPC.OLLAMA_SEND_MESSAGE, messages, model),
     stopGeneration: () => electron.ipcRenderer.invoke(IPC.OLLAMA_STOP_GENERATION)
   },
-  // API Key Management
   setAPIKey: (provider, key) => electron.ipcRenderer.invoke(IPC.STORE_SET_API_KEY, provider, key),
   getAPIKey: (provider) => electron.ipcRenderer.invoke(IPC.STORE_GET_API_KEY, provider),
   hasAPIKey: (provider) => electron.ipcRenderer.invoke(IPC.STORE_HAS_API_KEY, provider),
-  clearAPIKeys: () => electron.ipcRenderer.invoke(IPC.STORE_CLEAR_API_KEYS)
-});
+  clearAPIKeys: () => electron.ipcRenderer.invoke(IPC.STORE_CLEAR_API_KEYS),
+  transcribeRecording: (payload) => electron.ipcRenderer.invoke(IPC.TRANSCRIPTION_TRANSCRIBE, payload)
+};
+electron.contextBridge.exposeInMainWorld("ghost", ghostApi);

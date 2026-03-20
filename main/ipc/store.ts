@@ -1,80 +1,132 @@
-import { ipcMain } from 'electron';
-import { IPC } from '../../shared/ipc-channels';
-import { 
-  getConfig, 
-  setConfig, 
-  setAPIKey, 
-  getAPIKey, 
-  hasAPIKey, 
+import { ipcMain } from 'electron'
+import type { IpcResponse, StoreSettingValue } from '../../shared/ipc-channels'
+import { IPC } from '../../shared/ipc-channels'
+import {
+  getConfig,
+  setConfig,
+  setAPIKey,
+  getAPIKey,
+  hasAPIKey,
   clearAPIKeys,
-  validateAPIKeyFormat 
-} from '../store';
-import type { AppConfig } from '../store';
+  validateAPIKeyFormat,
+} from '../store'
+import {
+  errorMessageFromUnknown,
+  fail,
+  logIpcError,
+  ok,
+  parseApiKey,
+  parseApiProvider,
+  parseStoreKey,
+  parseStoreValue,
+} from './utils'
 
 export function registerStoreHandlers(): void {
-  // Generic store get/set
-  ipcMain.handle(IPC.STORE_GET, (_event, key: keyof AppConfig) => {
-    try {
-      return { success: true, data: getConfig(key) };
-    } catch (err) {
-      return { success: false, error: (err as Error).message };
+  ipcMain.handle(IPC.STORE_GET, (_event, keyPayload: unknown): IpcResponse<StoreSettingValue> => {
+    const parsedKey = parseStoreKey(keyPayload)
+    if (!parsedKey.ok) {
+      return fail(parsedKey.error)
     }
-  });
 
-  ipcMain.handle(IPC.STORE_SET, (_event, key: keyof AppConfig, value: any) => {
     try {
-      setConfig(key, value);
-      return { success: true };
+      return ok(getConfig(parsedKey.value))
     } catch (err) {
-      return { success: false, error: (err as Error).message };
+      logIpcError(`store:get:${parsedKey.value}`, err)
+      return fail(errorMessageFromUnknown(err, 'Falha ao carregar configuração.'))
     }
-  });
+  })
 
-  // API Key management
+  ipcMain.handle(
+    IPC.STORE_SET,
+    (_event, keyPayload: unknown, valuePayload: unknown): IpcResponse<void> => {
+      const parsedKey = parseStoreKey(keyPayload)
+      if (!parsedKey.ok) {
+        return fail(parsedKey.error)
+      }
+
+      const parsedValue = parseStoreValue(parsedKey.value, valuePayload)
+      if (!parsedValue.ok) {
+        return fail(parsedValue.error)
+      }
+
+      try {
+        setConfig(parsedKey.value, parsedValue.value)
+        return ok(undefined)
+      } catch (err) {
+        logIpcError(`store:set:${parsedKey.value}`, err)
+        return fail(errorMessageFromUnknown(err, 'Falha ao salvar configuração.'))
+      }
+    }
+  )
+
   ipcMain.handle(
     IPC.STORE_SET_API_KEY,
-    (_event, provider: 'openai' | 'anthropic' | 'whisper', key: string) => {
-      // Validar formato antes de salvar
-      const validation = validateAPIKeyFormat(provider, key);
-      if (!validation.valid) {
-        return { success: false, error: validation.error };
+    (_event, providerPayload: unknown, keyPayload: unknown): IpcResponse<void> => {
+      const parsedProvider = parseApiProvider(providerPayload)
+      if (!parsedProvider.ok) {
+        return fail(parsedProvider.error)
       }
-      return setAPIKey(provider, key);
+
+      const parsedKey = parseApiKey(keyPayload)
+      if (!parsedKey.ok) {
+        return fail(parsedKey.error)
+      }
+
+      const validation = validateAPIKeyFormat(parsedProvider.value, parsedKey.value)
+      if (!validation.valid) {
+        return fail(validation.error || 'Formato de API key inválido.')
+      }
+
+      const result = setAPIKey(parsedProvider.value, parsedKey.value)
+      return result.success ? ok(undefined) : fail(result.error || 'Falha ao salvar API key.')
     }
-  );
+  )
 
   ipcMain.handle(
     IPC.STORE_GET_API_KEY,
-    (_event, provider: 'openai' | 'anthropic' | 'whisper') => {
+    (_event, providerPayload: unknown): IpcResponse<string | undefined> => {
+      const parsedProvider = parseApiProvider(providerPayload)
+      if (!parsedProvider.ok) {
+        return fail(parsedProvider.error)
+      }
+
       try {
-        const key = getAPIKey(provider);
-        return { success: true, data: key };
+        const key = getAPIKey(parsedProvider.value)
+        return ok(key)
       } catch (err) {
-        return { success: false, error: (err as Error).message };
+        logIpcError(`store:getApiKey:${parsedProvider.value}`, err)
+        return fail(errorMessageFromUnknown(err, 'Falha ao carregar API key.'))
       }
     }
-  );
+  )
 
   ipcMain.handle(
     IPC.STORE_HAS_API_KEY,
-    (_event, provider: 'openai' | 'anthropic' | 'whisper') => {
+    (_event, providerPayload: unknown): IpcResponse<boolean> => {
+      const parsedProvider = parseApiProvider(providerPayload)
+      if (!parsedProvider.ok) {
+        return fail(parsedProvider.error)
+      }
+
       try {
-        const has = hasAPIKey(provider);
-        return { success: true, data: has };
+        const has = hasAPIKey(parsedProvider.value)
+        return ok(has)
       } catch (err) {
-        return { success: false, error: (err as Error).message };
+        logIpcError(`store:hasApiKey:${parsedProvider.value}`, err)
+        return fail(errorMessageFromUnknown(err, 'Falha ao verificar API key.'))
       }
     }
-  );
+  )
 
-  ipcMain.handle(IPC.STORE_CLEAR_API_KEYS, () => {
+  ipcMain.handle(IPC.STORE_CLEAR_API_KEYS, (): IpcResponse<void> => {
     try {
-      clearAPIKeys();
-      return { success: true };
+      clearAPIKeys()
+      return ok(undefined)
     } catch (err) {
-      return { success: false, error: (err as Error).message };
+      logIpcError('store:clearApiKeys', err)
+      return fail(errorMessageFromUnknown(err, 'Falha ao limpar API keys.'))
     }
-  });
+  })
 
-  console.log('Store IPC handlers registered');
+  console.log('Store IPC handlers registered')
 }

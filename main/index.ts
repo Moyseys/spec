@@ -5,6 +5,7 @@ import { IPC } from '../shared/ipc-channels'
 import { registerStoreHandlers } from './ipc/store'
 import { registerOllamaHandlers } from './ipc/ollama'
 import { registerMessagesHandlers } from './ipc/messages'
+import { registerTranscriptionHandlers } from './ipc/transcription'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -32,7 +33,6 @@ function createMainWindow() {
   // Load the remote URL for development or local html file for production
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-    mainWindow.webContents.openDevTools() // Debug
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -87,8 +87,6 @@ function createTray() {
   tray.on('click', () => toggleWindow())
 }
 
-import { registerStoreHandlers } from './ipc/store'
-
 app.whenReady().then(() => {
   createMainWindow()
   createTray()
@@ -103,16 +101,11 @@ app.whenReady().then(() => {
   registerStoreHandlers()
   registerOllamaHandlers()
   registerMessagesHandlers()
+  registerTranscriptionHandlers()
 
   // IPC Handlers
   ipcMain.on(IPC.WINDOW_HIDE, () => mainWindow?.hide())
   ipcMain.on(IPC.WINDOW_TOGGLE, () => toggleWindow())
-
-  // Mock AI response for now
-  ipcMain.handle(IPC.AI_SEND_MESSAGE, async (_event, message) => {
-    console.log('Received message:', message)
-    return { success: true, data: 'Olá! Sou o Spec. Estou sendo transformado em um assistente de reuniões.' }
-  })
 })
 
 app.on('window-all-closed', (e) => {

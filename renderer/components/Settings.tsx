@@ -1,56 +1,115 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
+import {
+  STORE_SETTING_KEYS,
+  type DefaultAIProvider,
+  type OllamaModel,
+  type OllamaStatus,
+} from '@shared/ipc-channels'
+import { Modal, Button, Badge } from './ui'
+import {
+  API_PROVIDERS,
+  EMPTY_API_FLAGS,
+  EMPTY_API_KEYS,
+  PROVIDERS,
+  ApiKeysSection,
+  AudioSettingsSection,
+  OllamaSettingsSection,
+  ProviderSelectionSection,
+  useAudioSettings,
+  type ApiKeyValues,
+  type ApiProvider,
+  type ApiProviderFlags,
+  type Provider,
+  type StatusMessage,
+} from './settings-panel'
 
 interface SettingsProps {
+  isOpen: boolean
   onClose: () => void
 }
 
-type Provider = 'openai' | 'anthropic' | 'ollama'
+const isProvider = (value: DefaultAIProvider | undefined): value is Provider =>
+  value === 'ollama' || value === 'openai' || value === 'anthropic'
 
-interface OllamaModel {
-  name: string
-  size: number
-  modified_at: string
-}
-
-const Settings: React.FC<SettingsProps> = ({ onClose }) => {
+const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [selectedProvider, setSelectedProvider] = useState<Provider>('ollama')
-  const [apiKeys, setApiKeys] = useState({ openai: '', anthropic: '' })
-  const [hasKeys, setHasKeys] = useState({ openai: false, anthropic: false })
-  const [showKeys, setShowKeys] = useState({ openai: false, anthropic: false })
+  const [apiKeys, setApiKeys] = useState<ApiKeyValues>({ ...EMPTY_API_KEYS })
+  const [hasKeys, setHasKeys] = useState<ApiProviderFlags>({ ...EMPTY_API_FLAGS })
+  const [showKeys, setShowKeys] = useState<ApiProviderFlags>({ ...EMPTY_API_FLAGS })
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  
-  const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean; error?: string }>({ running: false })
+  const [message, setMessage] = useState<StatusMessage | null>(null)
+
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ running: false })
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([])
-  const [selectedModel, setSelectedModel] = useState<string>('')
+  const [selectedModel, setSelectedModel] = useState('')
   const [loadingOllama, setLoadingOllama] = useState(false)
 
+  const {
+    audioDevices,
+    selectedAudioDeviceId,
+    savedAudioDeviceId,
+    audioPermissionStatus,
+    loadingAudioDevices,
+    requestingAudioPermission,
+    savingAudioDevice,
+    audioMessage,
+    audioStatusBadge,
+    savedAudioDeviceMissing,
+    setSelectedAudioDeviceId,
+    setStoredAudioDeviceId,
+    refreshAudioDevices,
+    requestAudioPermission,
+    saveAudioDevice,
+  } = useAudioSettings()
+
   useEffect(() => {
-    loadSettings()
-    checkOllama()
+    void loadSettings()
+    void checkOllama()
   }, [])
 
   const loadSettings = async () => {
     try {
-      const providerResult = await window.ghost.getSetting('defaultAIProvider')
-      if (providerResult.success && providerResult.data) {
-        setSelectedProvider(providerResult.data as Provider)
+      let storedAudioDeviceId = ''
+
+      const providerResult = await window.ghost.getSetting(STORE_SETTING_KEYS.DEFAULT_AI_PROVIDER)
+      if (providerResult.success && isProvider(providerResult.data)) {
+        setSelectedProvider(providerResult.data)
       }
 
-      const modelResult = await window.ghost.getSetting('ollamaModel')
-      if (modelResult.success && modelResult.data) {
+      const modelResult = await window.ghost.getSetting(STORE_SETTING_KEYS.OLLAMA_MODEL)
+      if (
+        modelResult.success &&
+        typeof modelResult.data === 'string' &&
+        modelResult.data.length > 0
+      ) {
         setSelectedModel(modelResult.data)
+      }
+
+      const audioDeviceResult = await window.ghost.getSetting(STORE_SETTING_KEYS.AUDIO_DEVICE_ID)
+      if (
+        audioDeviceResult.success &&
+        typeof audioDeviceResult.data === 'string' &&
+        audioDeviceResult.data.length > 0
+      ) {
+        storedAudioDeviceId = audioDeviceResult.data
+        setStoredAudioDeviceId(audioDeviceResult.data)
       }
 
       const openaiHas = await window.ghost.hasAPIKey('openai')
       const anthropicHas = await window.ghost.hasAPIKey('anthropic')
-      
+
       setHasKeys({
-        openai: openaiHas.data || false,
-        anthropic: anthropicHas.data || false,
+        openai: openaiHas.success ? (openaiHas.data ?? false) : false,
+        anthropic: anthropicHas.success ? (anthropicHas.data ?? false) : false,
       })
-    } catch (err) {
-      console.error('Error loading settings:', err)
+
+      await refreshAudioDevices(false, storedAudioDeviceId)
+    } catch (error) {
+      console.error('Error loading settings:', error)
+      setMessage({
+        type: 'error',
+        text: 'Não foi possível carregar as configurações.',
+      })
     }
   }
 
@@ -58,28 +117,31 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
     setLoadingOllama(true)
     try {
       const statusResult = await window.ghost.ollama.checkStatus()
-      if (statusResult.success && statusResult.data) {
+      if (statusResult.success) {
         setOllamaStatus(statusResult.data)
-        
+
         if (statusResult.data.running && statusResult.data.models) {
           setOllamaModels(statusResult.data.models)
-          
+
           if (!selectedModel && statusResult.data.models.length > 0) {
             setSelectedModel(statusResult.data.models[0].name)
           }
         }
+      } else {
+        setOllamaStatus({ running: false, error: statusResult.error })
       }
-    } catch (err) {
-      console.error('Error checking Ollama:', err)
+    } catch (error) {
+      console.error('Error checking Ollama:', error)
+      setOllamaStatus({ running: false, error: 'Não foi possível verificar o status do Ollama.' })
     } finally {
       setLoadingOllama(false)
     }
   }
 
-  const handleSaveKey = async (provider: 'openai' | 'anthropic') => {
+  const handleSaveKey = async (provider: ApiProvider) => {
     const key = apiKeys[provider].trim()
     if (!key) {
-      setMessage({ type: 'error', text: 'API key vazia' })
+      setMessage({ type: 'error', text: 'Informe uma API key válida.' })
       return
     }
 
@@ -88,186 +150,138 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
 
     try {
       const result = await window.ghost.setAPIKey(provider, key)
-      
+
       if (result.success) {
-        setMessage({ type: 'success', text: 'API key salva com sucesso' })
-        setHasKeys(prev => ({ ...prev, [provider]: true }))
-        setApiKeys(prev => ({ ...prev, [provider]: '' }))
-        setShowKeys(prev => ({ ...prev, [provider]: false }))
-        
+        setMessage({ type: 'success', text: 'API key salva com sucesso.' })
+        setHasKeys((previous) => ({ ...previous, [provider]: true }))
+        setApiKeys((previous) => ({ ...previous, [provider]: '' }))
+        setShowKeys((previous) => ({ ...previous, [provider]: false }))
+
         setTimeout(() => setMessage(null), 3000)
       } else {
-        setMessage({ type: 'error', text: result.error || 'Erro ao salvar' })
+        setMessage({ type: 'error', text: result.error || 'Não foi possível salvar a API key.' })
       }
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Erro ao salvar API key' })
+    } catch (error) {
+      console.error('Error saving API key:', error)
+      setMessage({ type: 'error', text: 'Não foi possível salvar a API key.' })
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleApiKeyChange = (provider: ApiProvider, value: string) => {
+    setApiKeys((previous) => ({ ...previous, [provider]: value }))
   }
 
   const handleSaveProvider = async () => {
     setSaving(true)
     try {
-      const result = await window.ghost.setSetting('defaultAIProvider', selectedProvider)
+      const result = await window.ghost.setSetting(
+        STORE_SETTING_KEYS.DEFAULT_AI_PROVIDER,
+        selectedProvider
+      )
       if (result.success) {
         if (selectedProvider === 'ollama' && selectedModel) {
-          await window.ghost.setSetting('ollamaModel', selectedModel)
+          const modelResult = await window.ghost.setSetting(STORE_SETTING_KEYS.OLLAMA_MODEL, selectedModel)
+          if (!modelResult.success) {
+            setMessage({
+              type: 'error',
+              text: modelResult.error || 'Não foi possível salvar o modelo do Ollama.',
+            })
+            return
+          }
         }
-        setMessage({ type: 'success', text: 'Configurações salvas' })
+        setMessage({ type: 'success', text: 'Configurações salvas com sucesso.' })
         setTimeout(() => setMessage(null), 3000)
+      } else {
+        setMessage({
+          type: 'error',
+          text: result.error || 'Não foi possível salvar as configurações.',
+        })
       }
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Erro ao salvar' })
+    } catch (error) {
+      console.error('Error saving provider settings:', error)
+      setMessage({ type: 'error', text: 'Não foi possível salvar as configurações.' })
     } finally {
       setSaving(false)
     }
   }
 
-  const providers: Provider[] = ['ollama', 'openai', 'anthropic']
-  const apiProviders: Array<'openai' | 'anthropic'> = ['openai', 'anthropic']
-
   return (
-    <div className="w-screen h-screen flex items-center justify-center bg-black/50 backdrop-blur-sm absolute inset-0 z-50">
-      <div className="w-full max-w-2xl max-h-[85vh] bg-black/80 backdrop-blur-3xl border border-white/20 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        
-        <div className="px-6 py-4 border-b border-white/10 bg-white/5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-medium text-white">Configurações</h2>
-            <button 
-              onClick={onClose}
-              className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition-colors duration-150"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Configurações"
+      description="Gerencie seus providers de IA e configurações"
+      size="lg"
+    >
+      <div className="space-y-6 max-h-[60vh] overflow-y-auto">
+        <ProviderSelectionSection
+          providers={PROVIDERS}
+          selectedProvider={selectedProvider}
+          onSelectProvider={setSelectedProvider}
+        />
 
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
-          
-          <div className="space-y-3">
-            <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Provider de AI</label>
-            <div className="grid grid-cols-3 gap-2">
-              {providers.map((provider) => (
-                <button
-                  key={provider}
-                  onClick={() => setSelectedProvider(provider)}
-                  className={'py-3 px-4 rounded-lg border transition-all text-sm font-medium ' + (
-                    selectedProvider === provider
-                      ? 'bg-white text-black border-white'
-                      : 'bg-white/5 text-zinc-400 border-white/10 hover:border-white/20 hover:bg-white/10'
-                  )}
-                >
-                  {provider === 'ollama' && 'Ollama'}
-                  {provider === 'openai' && 'OpenAI'}
-                  {provider === 'anthropic' && 'Claude'}
-                </button>
-              ))}
-            </div>
-          </div>
+        <AudioSettingsSection
+          audioPermissionStatus={audioPermissionStatus}
+          audioStatusBadge={audioStatusBadge}
+          audioDevices={audioDevices}
+          selectedAudioDeviceId={selectedAudioDeviceId}
+          savedAudioDeviceId={savedAudioDeviceId}
+          savedAudioDeviceMissing={savedAudioDeviceMissing}
+          loadingAudioDevices={loadingAudioDevices}
+          requestingAudioPermission={requestingAudioPermission}
+          savingAudioDevice={savingAudioDevice}
+          audioMessage={audioMessage}
+          onRefreshDevices={() => refreshAudioDevices(true)}
+          onRequestAudioPermission={requestAudioPermission}
+          onSaveAudioDevice={saveAudioDevice}
+          onSelectedAudioDeviceIdChange={setSelectedAudioDeviceId}
+        />
 
-          {selectedProvider === 'ollama' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Modelo Ollama</label>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={checkOllama}
-                    disabled={loadingOllama}
-                    className="px-3 py-1.5 text-xs bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-md text-white transition-colors"
-                  >
-                    {loadingOllama ? 'Verificando...' : 'Atualizar'}
-                  </button>
-                  {ollamaStatus.running ? (
-                    <span className="text-xs text-emerald-400">Conectado</span>
-                  ) : (
-                    <span className="text-xs text-red-400">Desconectado</span>
-                  )}
-                </div>
-              </div>
-              
-              {loadingOllama ? (
-                <div className="text-sm text-zinc-500 py-3">Verificando Ollama...</div>
-              ) : !ollamaStatus.running ? (
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3">
-                  <p className="text-sm text-yellow-300 mb-2">Ollama não está rodando</p>
-                  <p className="text-xs text-zinc-400 mb-2">
-                    Inicie o Ollama para usar modelos locais
-                  </p>
-                  <code className="text-xs bg-black/30 px-2 py-1 rounded">ollama serve</code>
-                </div>
-              ) : ollamaModels.length === 0 ? (
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3">
-                  <p className="text-sm text-yellow-300 mb-2">Nenhum modelo instalado</p>
-                  <p className="text-xs text-zinc-400 mb-2">
-                    Baixe um modelo para começar:
-                  </p>
-                  <code className="text-xs bg-black/30 px-2 py-1 rounded block mb-1">ollama pull phi</code>
-                  <code className="text-xs bg-black/30 px-2 py-1 rounded block">ollama pull llama2</code>
-                </div>
-              ) : (
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20 focus:bg-white/10 transition-all"
-                >
-                  {ollamaModels.map((model) => (
-                    <option key={model.name} value={model.name} className="bg-zinc-900">
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
+        {selectedProvider === 'ollama' && (
+          <OllamaSettingsSection
+            loadingOllama={loadingOllama}
+            ollamaStatus={ollamaStatus}
+            ollamaModels={ollamaModels}
+            selectedModel={selectedModel}
+            onRefresh={checkOllama}
+            onSelectModel={setSelectedModel}
+          />
+        )}
 
-          {apiProviders.map((provider) => (
-            <div key={provider} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                  {provider === 'openai' ? 'OpenAI API Key' : 'Anthropic API Key'}
-                </label>
-                {hasKeys[provider] && <span className="text-xs text-emerald-400">OK</span>}
-              </div>
-              <div className="space-y-2">
-                <input
-                  type={showKeys[provider] ? 'text' : 'password'}
-                  value={apiKeys[provider]}
-                  onChange={(e) => setApiKeys(prev => ({ ...prev, [provider]: e.target.value }))}
-                  placeholder={hasKeys[provider] ? '••••••••••••' : (provider === 'openai' ? 'sk-...' : 'sk-ant-...')}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-white/20 focus:bg-white/10 transition-all"
-                />
-                <button
-                  onClick={() => handleSaveKey(provider)}
-                  disabled={saving || !apiKeys[provider].trim()}
-                  className="w-full py-2.5 rounded-lg bg-white/10 hover:bg-white/15 disabled:bg-white/5 disabled:cursor-not-allowed text-white disabled:text-zinc-600 text-sm font-medium transition-all"
-                >
-                  {saving ? 'Salvando...' : (hasKeys[provider] ? 'Atualizar' : 'Salvar')}
-                </button>
-              </div>
-            </div>
-          ))}
+        <ApiKeysSection
+          apiProviders={API_PROVIDERS}
+          apiKeys={apiKeys}
+          hasKeys={hasKeys}
+          showKeys={showKeys}
+          saving={saving}
+          onApiKeyChange={handleApiKeyChange}
+          onSaveKey={handleSaveKey}
+        />
 
-          {message && (
-            <div className={'px-4 py-3 rounded-lg text-sm ' + (message.type === 'success' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30')}>
-              {message.text}
-            </div>
-          )}
-        </div>
-
-        <div className="px-6 py-4 border-t border-white/10 bg-white/5">
-          <button
-            onClick={handleSaveProvider}
-            disabled={saving}
-            className="w-full py-3 rounded-lg bg-white hover:bg-white/90 disabled:bg-white/50 text-black font-medium transition-all"
+        {message && (
+          <Badge
+            variant={message.type === 'success' ? 'success' : 'error'}
+            className="w-full justify-center py-3"
           >
-            {saving ? 'Salvando...' : 'Salvar'}
-          </button>
-        </div>
+            {message.text}
+          </Badge>
+        )}
       </div>
-    </div>
+
+      <div className="flex gap-3 pt-4 mt-6 border-t border-white/10">
+        <Button
+          variant="primary"
+          onClick={handleSaveProvider}
+          disabled={saving}
+          loading={saving}
+          className="flex-1"
+        >
+          Salvar Configurações
+        </Button>
+      </div>
+    </Modal>
   )
 }
 

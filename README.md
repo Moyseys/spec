@@ -426,6 +426,11 @@ const transcription = await openai.audio.transcriptions.create({
 #### Todo: `meeting-summary`
 **Resumo automático, action items, keywords**
 
+✅ **Status:** implementado no fluxo de gravações (`renderer/App.tsx`) com:
+- geração/atualização de resumo por gravação transcrita via `window.ghost.ollama.sendMessage`
+- persistência em `recordings[].summary`
+- exibição inline (expandir/recolher) e tratamento de erros de Ollama/modelo
+
 **Prompts para Ollama:**
 
 ```typescript
@@ -804,8 +809,8 @@ interface ActionItem {
 3. [ ] Implementar `audio-storage`
 
 ### Curto Prazo (2 semanas)
-4. [ ] Integrar Whisper
-5. [ ] Criar análise com Ollama
+4. [x] Integrar Whisper
+5. [x] Criar análise com Ollama
 6. [ ] MVP pronto para uso
 
 ### Médio Prazo (1-2 meses)
